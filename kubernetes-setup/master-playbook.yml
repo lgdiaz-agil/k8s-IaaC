@@ -1,0 +1,107 @@
+---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install packages that allow apt to be used over HTTPS
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      - docker.io
+  
+  - name : habilitar docker 
+    systemd :
+      name : docker
+      enabled : yes
+      state : started 
+
+  - name: Add an apt signing key for Kubernetes
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present 
+
+  - name: Adding apt repository for Kubernetes
+    apt_repository:
+      repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      filename: kubernetes.list
+  
+  - name: Instalar herramientas de k8s
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - kubeadm
+      - kubelet
+      - kubectl
+
+  - name: Configure node ip
+    lineinfile:
+      path: /etc/default/kubelet
+      line: KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}
+      create: yes
+
+  - name :  Hold kubeadm
+    dpkg_selections:
+      name: kubeadm
+      selection: hold
+
+  - name :  Hold kubelet
+    dpkg_selections:
+      name: kubelet
+      selection: hold
+
+  - name :  Hold kubectl
+    dpkg_selections:
+      name: kubectl
+      selection: hold
+
+  - name: Remove swapfile from /etc/fstab
+    mount:
+      name: "{{ item }}"
+      fstype: swap
+      state: absent
+    with_items:
+      - swap
+      - none
+
+  - name: Disable swap
+    command: swapoff -a
+    when: ansible_swaptotal_mb > 0
+
+  - name: Set a hostname
+    hostname:
+      name: k8s-master
+  
+  - name : Iniciar kubernetes
+    command : kubeadm init --apiserver-advertise-address="192.168.10.6" --apiserver-cert-extra-sans="192.168.10.6"  --node-name k8s-master --pod-network-cidr=192.168.0.0/16
+
+  - name: Setup kubeconfig for vagrant user
+    command: "{{ item }}"
+    with_items:
+     - mkdir -p /home/vagrant/.kube
+     - cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
+     - chown vagrant:vagrant /home/vagrant/.kube/config
+
+  - name: Generate join command
+    command: kubeadm token create --print-join-command
+    register: join_command
+
+  - name: Copy join command to local file
+    local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join"
+
+
+
+
+  handlers:
+    - name: docker status
+      service: name=docker state=started

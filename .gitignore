@@ -1,0 +1,4 @@
+.vagrant/
+crear_vm.sh
+ubuntu-bionic-18.04-cloudimg-console.log
+*.swp
